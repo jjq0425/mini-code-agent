@@ -1,0 +1,22 @@
+[project]
+name = "mini-code-agent"
+version = "0.1.0"
+description = "LangGraph-based code agent using DashScope compatible API"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "langgraph>=0.2.10",
+  "langchain-openai>=0.2.8",
+  "langchain-core>=0.3.20",
+  "httpx[socks]>=0.27.0",
+]
+
+[project.scripts]
+code-agent = "code_agent.main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
