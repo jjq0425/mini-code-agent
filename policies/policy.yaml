@@ -1,0 +1,10 @@
+# Simple policy file: define folders (relative to repo root) that are forbidden to write to.
+# Format:
+# forbidden_folders:
+#   - path1
+#   - path2
+
+forbidden_folders:
+  - .venv
+  - logs
+  - src
