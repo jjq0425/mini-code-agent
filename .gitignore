@@ -25,6 +25,7 @@ env/
 # Environment variables files
 .env
 .env.*.local
+./.env
 
 # Pytest
 .pytest_cache/
