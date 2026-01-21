@@ -100,7 +100,8 @@ def build_agent(tools: Sequence = TOOLS):
             return f"PolicyError: 无法校验路径 '{path}'"
         # delegate to the original tool implementation
         # 委托给原始的 write_file 工具实现进行实际写入
-        return orig_write_file(path, content)
+        # bugfix: invoke
+        return orig_write_file.invoke({"path": path, "content": content})
 
     # 将 tools 列表中的 write_file 替换为我们的包装器
     def _tool_name(t):
