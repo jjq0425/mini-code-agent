@@ -52,7 +52,7 @@ def build_agent(tools: Sequence = TOOLS):
     model = ChatOpenAI(
         api_key=api_key,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-plus",
+        model="qwen-flash",
     )
     # 如果存在则加载简单的策略文件
     policy_path = Path.cwd() / "policies" / "policy.yaml"

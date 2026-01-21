@@ -5,9 +5,9 @@ import json
 import os
 import time
 import uuid
+import logging
+import traceback
 from pathlib import Path
-
-from code_agent.agent import build_agent
 
 
 def _parse_args() -> argparse.Namespace:
@@ -46,6 +46,115 @@ def _group_hooks_by_call(hooks: list) -> dict:
     return groups
 
 
+def _parse_agent_output(serializable, model_trace_messages, hooks):
+    """Produce a clean, human-friendly agent_output list.
+
+    Each item is either a human/ai message with optional tool_calls entries
+    enriched from `hooks` (timestamps, results).
+    """
+    # build call_id -> hook info map
+    call_map = {}
+    try:
+        for h in hooks:
+            cid = h.get("call_id")
+            if not cid:
+                continue
+            call_map.setdefault(cid, {})
+            ev = h.get("event")
+            if ev == "hook_before":
+                call_map[cid]["before"] = {k: h.get(k) for k in ("timestamp", "process_pid", "payload")}
+            elif ev == "hook_after":
+                call_map[cid]["after"] = {k: h.get(k) for k in ("timestamp", "process_pid", "payload")}
+    except Exception:
+        call_map = {}
+
+    # If we already have structured model_trace_messages, convert to readable form
+    if model_trace_messages:
+        out = []
+        for m in model_trace_messages:
+            entry = {
+                "id": m.get("id"),
+                "role": m.get("role"),
+                "content": m.get("content"),
+                "response_metadata": m.get("response_metadata"),
+            }
+            # try to find tool_calls in response_metadata
+            calls = []
+            try:
+                rm = entry.get("response_metadata") or {}
+                if isinstance(rm, dict) and "tool_calls" in rm and isinstance(rm["tool_calls"], list):
+                    for c in rm["tool_calls"]:
+                        call = {"name": c.get("name"), "id": c.get("id"), "args": c.get("args")}
+                        cid = c.get("id")
+                        if cid and cid in call_map:
+                            call.update(call_map[cid])
+                        calls.append(call)
+            except Exception:
+                calls = []
+            entry["tool_calls"] = calls
+            out.append(entry)
+        return out
+
+    # Otherwise try to parse string representation like the legacy runs
+    parsed = []
+    if isinstance(serializable, str):
+        s = serializable
+        import re
+
+        pattern = re.compile(r"(HumanMessage|AIMessage|ToolMessage)\((.*?)\)(?:, |,?$)", re.DOTALL)
+        for m in pattern.finditer(s):
+            kind = m.group(1)
+            inner = m.group(2)
+            entry = {"type": kind}
+            # id
+            id_m = re.search(r"id=(?P<q>['\"])(?P<id>.*?)(?P=q)", inner)
+            if id_m:
+                entry["id"] = id_m.group("id")
+            # content
+            cm = re.search(r"content=(?P<q>['\"])(?P<c>.*?)(?P=q)", inner, re.DOTALL)
+            if cm:
+                entry["content"] = cm.group("c")
+            # tool_calls for AIMessage
+            if kind == "AIMessage":
+                tc_m = re.search(r"tool_calls=\[(?P<t>.*?)\](,|\)|$)", inner, re.DOTALL)
+                calls = []
+                if tc_m:
+                    calls_block = tc_m.group("t")
+                    for tb in re.finditer(r"\{(.*?)\}", calls_block, re.DOTALL):
+                        tb_inner = tb.group(1)
+                        name_m = re.search(r"name['\"]?[:=]\s*['\"](?P<name>[^'\"]+)['\"]", tb_inner)
+                        id_m2 = re.search(r"id['\"]?[:=]\s*['\"](?P<id>[^'\"]+)['\"]", tb_inner)
+                        args_m = re.search(r"args['\"]?[:=]\s*\{(?P<args>.*?)\}\s*(,|$)", tb_inner, re.DOTALL)
+                        call = {}
+                        if name_m:
+                            call["name"] = name_m.group("name")
+                        if id_m2:
+                            call["id"] = id_m2.group("id")
+                        if args_m:
+                            args_txt = args_m.group("args")
+                            # extract common args
+                            path_m = re.search(r"path['\"]?\s*[:=]\s*['\"](?P<path>[^'\"]+)['\"]", args_txt)
+                            cmd_m = re.search(r"command['\"]?\s*[:=]\s*['\"](?P<cmd>[^'\"]+)['\"]", args_txt)
+                            content_m = re.search(r"content['\"]?\s*[:=]\s*(?P<q>['\"])(?P<content>.*?)(?P=q)", args_txt, re.DOTALL)
+                            call_args = {}
+                            if path_m:
+                                call_args["path"] = path_m.group("path")
+                            if cmd_m:
+                                call_args["command"] = cmd_m.group("cmd")
+                            if content_m:
+                                call_args["content"] = content_m.group("content")
+                            call["args"] = call_args if call_args else {"raw": args_txt.strip()}
+                        # enrich from hooks
+                        if id_m2:
+                            cid_val = id_m2.group("id")
+                            if cid_val in call_map:
+                                call.update(call_map[cid_val])
+                        calls.append(call)
+                entry["tool_calls"] = calls
+            parsed.append(entry)
+    return parsed
+
+
 def main() -> None:
     args = _parse_args()
     # create a run id and export it so tools write hooks to logs/{run_id}.jsonl
@@ -53,12 +162,56 @@ def main() -> None:
     os.environ["AGENT_RUN_ID"] = run_id
 
     # ensure logs dir exists
-    (Path.cwd() / "logs").mkdir(exist_ok=True)
+    logs_dir = Path.cwd() / "logs"
+    logs_dir.mkdir(exist_ok=True)
 
-    app = build_agent()
+    # minimal error capture: attempt to import the agent here so we can catch
+    # SyntaxError/ImportError and write a structured error log even if the
+    # code fails to compile.
+    try:
+        from code_agent.agent import build_agent
+    except Exception as e:
+        err_path = logs_dir / f"{run_id}.error.json"
+        err_payload = {
+            "run_id": run_id,
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": time.time(),
+        }
+        try:
+            err_path.write_text(json.dumps(err_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            # fallback: basic logging to stderr if file write fails
+            logging.error("Failed to write error log for run %s: %s", run_id, e)
+            logging.error(traceback.format_exc())
+        print(f"Agent failed to start. See logs/{run_id}.error.json")
+        return
+
     start_ts = time.time()
-    result = app.invoke({"messages": [{"role": "user", "content": args.prompt}]})
-    duration = time.time() - start_ts
+    try:
+        app = build_agent()
+        result = app.invoke({"messages": [{"role": "user", "content": args.prompt}]})
+        duration = time.time() - start_ts
+    except Exception as e:
+        duration = time.time() - start_ts
+        err_path = logs_dir / f"{run_id}.error.json"
+        err_payload = {
+            "run_id": run_id,
+            "phase": "runtime",
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "timestamp": time.time(),
+        }
+        try:
+            err_path.write_text(json.dumps(err_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logging.error("Failed to write runtime error log for run %s: %s", run_id, e)
+            logging.error(traceback.format_exc())
+        print(f"Agent runtime error. See logs/{run_id}.error.json")
+        # still attempt to continue to produce a run record with error info
+        result = {"error": str(e), "traceback": traceback.format_exc()}
 
     # Extract model-internal trace: messages, response metadata, and any tool_calls
     model_trace = {"messages": []}
@@ -114,6 +267,7 @@ def main() -> None:
             serializable = str(result)
 
     # write full run record
+    parsed_agent_output = _parse_agent_output(serializable, model_trace.get("messages", []), hooks)
     run_record = {
         "run_id": run_id,
         "prompt": args.prompt,
@@ -122,6 +276,8 @@ def main() -> None:
         "agent_pid": os.getpid(),
         "hooks": hooks,
         "result": serializable,
+        "agent_output": parsed_agent_output,
+        "agent_output_raw": model_trace.get("messages", []),
     }
     # Write full run record to its own JSON file and remove the jsonl hooks file
     out_path = Path.cwd() / "logs" / f"{run_id}.json"
