@@ -49,10 +49,14 @@ def build_agent(tools: Sequence = TOOLS):
     """
     _load_dotenv()
     api_key = os.environ.get("DASHSCOPE_API_KEY")
+    # Read service endpoint and model name from environment (or .env)
+    # Defaults kept for backwards compatibility.
+    base_url = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    model_name = os.environ.get("DASHSCOPE_MODEL", "qwen-flash")
     model = ChatOpenAI(
         api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-flash",
+        base_url=base_url,
+        model=model_name,
     )
     # 如果存在则加载简单的策略文件
     policy_path = Path.cwd() / "policies" / "policy.yaml"
@@ -128,9 +132,12 @@ def build_agent(tools: Sequence = TOOLS):
             new_tools.append(t)
 
     return create_react_agent(model, new_tools)
+    # Fallback / legacy path: also respect env vars here
+    base_url = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    model_name = os.environ.get("DASHSCOPE_MODEL", "qwen-flash")
     model = ChatOpenAI(
         api_key=api_key,
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model="qwen-flash",
+        base_url=base_url,
+        model=model_name,
     )
     return create_react_agent(model, tools)
