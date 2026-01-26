@@ -1,16 +1,18 @@
 from __future__ import annotations
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool, tool
+from pydantic import BaseModel, Field, create_model
 
 WORKSPACE_ROOT = Path.cwd()
 LOGS_DIR = WORKSPACE_ROOT / "logs"
@@ -78,17 +80,126 @@ def _run_bash_impl(command: str) -> str:
     return output.strip() or "(no output)"
 
 
-def _call_mcp_service_impl(url: str, payload: str) -> str:
-    try:
-        body = json.loads(payload)
-        if not isinstance(body, dict):
-            body = {"input": body}
-    except json.JSONDecodeError:
-        body = {"input": payload}
+def _post_json(url: str, payload: dict) -> dict:
     with httpx.Client(timeout=30) as client:
-        response = client.post(url, json=body)
+        response = client.post(url, json=payload)
         response.raise_for_status()
-        return response.text
+        return response.json()
+
+
+def _fetch_mcp_schemas(url: str) -> list[dict]:
+    errors = []
+    try:
+        payload = {"method": "tools/list", "params": {}}
+        response = _post_json(url, payload)
+        tools = response.get("tools") or response.get("result", {}).get("tools")
+        if isinstance(tools, list):
+            return tools
+    except Exception as exc:
+        errors.append(exc)
+    try:
+        with httpx.Client(timeout=30) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            data = response.json()
+        if isinstance(data, dict) and "tools" in data and isinstance(data["tools"], list):
+            return data["tools"]
+        if isinstance(data, dict) and "name" in data:
+            return [data]
+    except Exception as exc:
+        errors.append(exc)
+    if errors:
+        raise errors[-1]
+    return []
+
+
+def _json_schema_to_pydantic(schema: dict, name: str) -> type[BaseModel]:
+    if schema.get("type") == "object":
+        properties = schema.get("properties", {}) or {}
+        required = set(schema.get("required", []) or [])
+    else:
+        properties = {}
+        required = set()
+    fields: dict[str, tuple[Any, Any]] = {}
+    for prop_name, prop_schema in properties.items():
+        prop_type = prop_schema.get("type")
+        description = prop_schema.get("description", "")
+        default = prop_schema.get("default", ...)
+        if prop_type == "string":
+            py_type = str
+        elif prop_type == "integer":
+            py_type = int
+        elif prop_type == "number":
+            py_type = float
+        elif prop_type == "boolean":
+            py_type = bool
+        elif prop_type == "array":
+            py_type = list
+        elif prop_type == "object":
+            py_type = dict
+        else:
+            py_type = Any
+        if prop_name in required:
+            field_default = Field(..., description=description)
+        else:
+            field_default = Field(default if default is not ... else None, description=description)
+        fields[prop_name] = (py_type, field_default)
+    model_name = f"{name.title().replace('-', '').replace(' ', '')}Args"
+    return create_model(model_name, **fields)
+
+
+def _call_mcp_tool_impl(url: str, tool_name: str, arguments: dict) -> str:
+    payload = {"method": "tools/call", "params": {"name": tool_name, "arguments": arguments}}
+    response = _post_json(url, payload)
+    if isinstance(response, dict) and "result" in response:
+        return json.dumps(response["result"], ensure_ascii=False)
+    return json.dumps(response, ensure_ascii=False)
+
+
+def _build_mcp_tool(url: str, schema: dict) -> StructuredTool:
+    tool_name = schema.get("name") or "mcp_tool"
+    description = schema.get("description") or "Feishu MCP tool"
+    input_schema = schema.get("input_schema") or schema.get("inputSchema") or {}
+    args_schema = _json_schema_to_pydantic(input_schema, tool_name)
+
+    def _runner(**kwargs: Any) -> str:
+        call_id = str(uuid.uuid4())
+        _log_hook("hook_before", tool_name, call_id, {"url": url, "args": kwargs})
+        start = time.time()
+        try:
+            res = _call_mcp_tool_impl(url, tool_name, kwargs)
+            _log_hook(
+                "hook_after",
+                tool_name,
+                call_id,
+                {"result_len": len(res), "result_snippet": res[:200], "duration": time.time() - start},
+            )
+            return res
+        except Exception as exc:
+            _log_hook("hook_error", tool_name, call_id, {"error": str(exc)})
+            raise
+
+    return StructuredTool.from_function(
+        func=functools.wraps(_runner)(_runner),
+        name=tool_name,
+        description=description,
+        args_schema=args_schema,
+    )
+
+
+def load_mcp_tools() -> list[StructuredTool]:
+    url = os.environ.get("MCP_FEISHU_URL")
+    if not url:
+        return []
+    try:
+        schemas = _fetch_mcp_schemas(url)
+    except Exception:
+        return []
+    tools: list[StructuredTool] = []
+    for schema in schemas:
+        if isinstance(schema, dict):
+            tools.append(_build_mcp_tool(url, schema))
+    return tools
 
 
 @tool
@@ -150,34 +261,8 @@ def run_bash(command: Annotated[str, "Shell command to execute."]) -> str:
         raise
 
 
-@tool
-def call_mcp_service(
-    payload: Annotated[
-        str,
-        "JSON string or plain text payload for the Feishu MCP service (document create/query).",
-    ],
-) -> str:
-    """Call the Feishu MCP service for document creation/querying (requirements docs) via MCP_FEISHU_URL."""
-    call_id = str(uuid.uuid4())
-    url = os.environ.get("MCP_FEISHU_URL")
-    if not url:
-        _log_hook("hook_error", "call_mcp_service", call_id, {"error": "MCP_FEISHU_URL is not set"})
-        return "MCP_FEISHU_URL is not set. Please configure it in .env."
-    _log_hook("hook_before", "call_mcp_service", call_id, {"url": url, "payload_len": len(payload)})
-    start = time.time()
-    try:
-        res = _call_mcp_service_impl(url, payload)
-        capped = res if len(res) <= 20000 else res[:20000] + "\n...[truncated]"
-        _log_hook(
-            "hook_after",
-            "call_mcp_service",
-            call_id,
-            {"result_len": len(res), "result_snippet": capped[:200], "duration": time.time() - start},
-        )
-        return res
-    except Exception as e:
-        _log_hook("hook_error", "call_mcp_service", call_id, {"error": str(e)})
-        raise
+BASE_TOOLS = [read_file, write_file, run_bash]
 
 
-TOOLS = [read_file, write_file, run_bash, call_mcp_service]
+def get_tools() -> list:
+    return [*BASE_TOOLS, *load_mcp_tools()]

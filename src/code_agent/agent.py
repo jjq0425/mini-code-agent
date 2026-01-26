@@ -7,7 +7,7 @@ from typing import Sequence
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from code_agent.tools import TOOLS
+from code_agent.tools import get_tools
 
 from langchain_core.tools import tool as tool_decorator
 from code_agent.tools import write_file as orig_write_file
@@ -41,7 +41,7 @@ def _load_dotenv(path: str | Path | None = None) -> None:
         return
 
 
-def build_agent(tools: Sequence = TOOLS):
+def build_agent(tools: Sequence | None = None):
     """创建一个与 DashScope 兼容的 LangGraph ReAct agent。
 
     API key 会优先从仓库根目录的 `.env` 文件读取（变量名 `DASHSCOPE_API_KEY`），
@@ -123,6 +123,9 @@ def build_agent(tools: Sequence = TOOLS):
         if func:
             return getattr(func, "__name__", None)
         return None
+
+    if tools is None:
+        tools = get_tools()
 
     new_tools = []
     for t in tools:
