@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from langchain_core.tools import tool
 
 WORKSPACE_ROOT = Path.cwd()
@@ -77,6 +78,19 @@ def _run_bash_impl(command: str) -> str:
     return output.strip() or "(no output)"
 
 
+def _call_mcp_service_impl(url: str, payload: str) -> str:
+    try:
+        body = json.loads(payload)
+        if not isinstance(body, dict):
+            body = {"input": body}
+    except json.JSONDecodeError:
+        body = {"input": payload}
+    with httpx.Client(timeout=30) as client:
+        response = client.post(url, json=body)
+        response.raise_for_status()
+        return response.text
+
+
 @tool
 def read_file(path: Annotated[str, "Relative path to file."]) -> str:
     """Read a text file from the workspace and return its contents.
@@ -136,4 +150,34 @@ def run_bash(command: Annotated[str, "Shell command to execute."]) -> str:
         raise
 
 
-TOOLS = [read_file, write_file, run_bash]
+@tool
+def call_mcp_service(
+    payload: Annotated[
+        str,
+        "JSON string or plain text payload for the Feishu MCP service (document create/query).",
+    ],
+) -> str:
+    """Call the Feishu MCP service for document creation/querying (requirements docs) via MCP_FEISHU_URL."""
+    call_id = str(uuid.uuid4())
+    url = os.environ.get("MCP_FEISHU_URL")
+    if not url:
+        _log_hook("hook_error", "call_mcp_service", call_id, {"error": "MCP_FEISHU_URL is not set"})
+        return "MCP_FEISHU_URL is not set. Please configure it in .env."
+    _log_hook("hook_before", "call_mcp_service", call_id, {"url": url, "payload_len": len(payload)})
+    start = time.time()
+    try:
+        res = _call_mcp_service_impl(url, payload)
+        capped = res if len(res) <= 20000 else res[:20000] + "\n...[truncated]"
+        _log_hook(
+            "hook_after",
+            "call_mcp_service",
+            call_id,
+            {"result_len": len(res), "result_snippet": capped[:200], "duration": time.time() - start},
+        )
+        return res
+    except Exception as e:
+        _log_hook("hook_error", "call_mcp_service", call_id, {"error": str(e)})
+        raise
+
+
+TOOLS = [read_file, write_file, run_bash, call_mcp_service]
