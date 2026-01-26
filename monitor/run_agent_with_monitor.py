@@ -1,9 +1,22 @@
-"""Run the code agent with monitoring callbacks without modifying main.py."""
+"""Run the code agent with monitoring callbacks without modifying main.py.
+
+This script can run without installing the package by adding `src/`
+to `sys.path` so that `code_agent` can be imported.
+"""
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+# Ensure `code_agent` (under src/) is importable when running this module directly
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from code_agent.agent import build_agent
+# Agent以包的形式引入时，提供包即可。
 
 from monitor.langgraph_monitor import AgentEventLogger
 

@@ -23,6 +23,9 @@ class AgentEventLogger(BaseCallbackHandler):
     events: list[AgentEvent] = field(default_factory=list)
     capture_messages: bool = True
 
+    def __hash__(self) -> int:  # allow instances to be placed in sets
+        return id(self)
+
     def _record(self, event: str, payload: dict[str, Any]) -> None:
         self.events.append(AgentEvent(event=event, payload=payload))
 
@@ -32,9 +35,14 @@ class AgentEventLogger(BaseCallbackHandler):
         messages: list[list[BaseMessage]],
         **kwargs: Any,
     ) -> None:
-        payload = {"model": serialized.get("name") or serialized.get("id")}
-        if self.capture_messages:
-            payload["messages"] = [[m.dict() for m in batch] for batch in messages]
+        ser = serialized or {}
+        payload = {"model": ser.get("name") or ser.get("id")}
+        if self.capture_messages and messages:
+            try:
+                payload["messages"] = [[m.dict() for m in batch] for batch in messages]
+            except Exception:
+                # best-effort: skip message capture on unexpected shapes
+                payload["messages"] = None
         if kwargs:
             payload["params"] = kwargs
         self._record("chat_model_start", payload)
@@ -45,8 +53,9 @@ class AgentEventLogger(BaseCallbackHandler):
         input_str: str,
         **kwargs: Any,
     ) -> None:
+        ser = serialized or {}
         payload = {
-            "tool": serialized.get("name") or serialized.get("id"),
+            "tool": ser.get("name") or ser.get("id"),
             "input": input_str,
         }
         if kwargs:
@@ -65,9 +74,10 @@ class AgentEventLogger(BaseCallbackHandler):
         inputs: dict[str, Any],
         **kwargs: Any,
     ) -> None:
+        ser = serialized or {}
         payload = {
-            "chain": serialized.get("name") or serialized.get("id"),
-            "inputs": inputs,
+            "chain": ser.get("name") or ser.get("id"),
+            "inputs": inputs or {},
         }
         if kwargs:
             payload["params"] = kwargs
