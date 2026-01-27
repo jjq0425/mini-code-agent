@@ -15,7 +15,11 @@ import asyncio
 
 WORKSPACE_ROOT = Path.cwd()
 LOGS_DIR = WORKSPACE_ROOT / "logs"
-LOGS_DIR.mkdir(exist_ok=True)
+try:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    # best-effort: if we cannot create logs dir under workspace, ignore for now
+    pass
 
 
 def _resolve_path(path: str) -> Path:
@@ -31,8 +35,20 @@ def _write_hook_entry(entry: dict) -> None:
     if not run_id:
         run_id = f"fallback-{int(time.time())}"
     path = LOGS_DIR / f"{run_id}.jsonl"
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    try:
+        # ensure directory exists (in case cwd changed after import)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        # fallback: attempt to write to /tmp and emit a clear diagnostic to stdout
+        try:
+            tmp_path = Path("/tmp") / f"{run_id}.jsonl"
+            with tmp_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            print(f"[tools._write_hook_entry] failed to write to {path}: {exc}; wrote to {tmp_path} instead")
+        except Exception as exc2:
+            print(f"[tools._write_hook_entry] failed to write hook entry to {path} and /tmp: {exc2}")
 
 
 def _log_hook(event: str, tool_name: str, call_id: str, payload: object | None = None) -> None:
@@ -49,7 +65,11 @@ def _log_hook(event: str, tool_name: str, call_id: str, payload: object | None =
             entry["payload"] = payload
         except TypeError:
             entry["payload"] = str(payload)
-    _write_hook_entry(entry)
+    try:
+        _write_hook_entry(entry)
+    except Exception as exc:
+        # ensure logging doesn't raise and break tool execution
+        print(f"[tools._log_hook] failed to write log entry: {exc}")
 
 
 def _read_file_impl(path: str) -> str:

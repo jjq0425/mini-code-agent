@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+import json
+import time
+import os
+from pathlib import Path
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
@@ -23,11 +27,46 @@ class AgentEventLogger(BaseCallbackHandler):
     events: list[AgentEvent] = field(default_factory=list)
     capture_messages: bool = True
 
+    # per-run persistent log path (initialized in __post_init__)
+    _hook_log_path: Path | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        try:
+            logs_dir = Path.cwd() / "logs" / "hookLogs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+            pid = os.getpid()
+            filename = f"{ts}-{pid}.jsonl"
+            self._hook_log_path = logs_dir / filename
+        except Exception as exc:
+            print(f"[AgentEventLogger.__post_init__] failed to create hook log path: {exc}")
+            self._hook_log_path = None
+
     def __hash__(self) -> int:  # allow instances to be placed in sets
         return id(self)
 
     def _record(self, event: str, payload: dict[str, Any]) -> None:
+        # keep in-memory record
         self.events.append(AgentEvent(event=event, payload=payload))
+        # append to per-run hookLogs file when available
+        try:
+            path = self._hook_log_path
+            if path is None:
+                # attempt to lazily initialize if __post_init__ failed
+                logs_dir = Path.cwd() / "logs" / "hookLogs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                ts = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+                pid = os.getpid()
+                filename = f"{ts}-{pid}.jsonl"
+                path = logs_dir / filename
+                self._hook_log_path = path
+
+            entry = {"event": event, "payload": payload, "timestamp": time.time(), "pid": os.getpid()}
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            # do not raise from logger; emit diagnostic to stdout
+            print(f"[AgentEventLogger._record] failed to write hookLog to {self._hook_log_path}: {exc}")
 
     def on_chat_model_start(
         self,
