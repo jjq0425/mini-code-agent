@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, StructuredTool, tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+import asyncio
 
 WORKSPACE_ROOT = Path.cwd()
 LOGS_DIR = WORKSPACE_ROOT / "logs"
@@ -87,7 +89,7 @@ def _wrap_mcp_tool(tool_obj: BaseTool, url: str) -> StructuredTool:
         _log_hook("hook_before", tool_name, call_id, {"url": url, "args": kwargs})
         start = time.time()
         try:
-            result = tool_obj.invoke(kwargs)
+            result = asyncio.run(tool_obj.ainvoke(kwargs))
             if not isinstance(result, str):
                 result = json.dumps(result, ensure_ascii=False)
             _log_hook(
@@ -115,19 +117,21 @@ def load_mcp_tools() -> list[StructuredTool]:
         print("MCP_FEISHU_URL environment variable not set, skipping MCP tools.")
         return []
     print(f"Loading MCP tools from {url}...")
-    try:
-        from langchain_mcp_adapters.client import MCPClient
-        from langchain_mcp_adapters.tools import load_mcp_tools as load_mcp_tools_from_adapter
-    except ImportError as exc:
-        print(f"langchain-mcp-adapters is not installed: {exc}. Skipping MCP tools.")
-        return []
-    client = MCPClient(url)
-    tools = load_mcp_tools_from_adapter(client)
+    client = MultiServerMCPClient(
+        {
+            "feishu_server": {
+                "transport": "http",
+                "url": url,
+            }
+        }
+    )
+
+    tools = asyncio.run(client.get_tools())
     wrapped_tools: list[StructuredTool] = []
     for tool_obj in tools:
         wrapped_tools.append(_wrap_mcp_tool(tool_obj, url))
     print(f"Loaded {len(wrapped_tools)} MCP tools via langchain-mcp-adapters.")
-    return wrapped_tools[:1]
+    return wrapped_tools
 
 
 @tool
