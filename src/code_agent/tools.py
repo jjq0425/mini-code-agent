@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, StructuredTool, tool
-from langchain_mcp_adapters.client import MCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools as load_mcp_tools_from_adapter
 
 WORKSPACE_ROOT = Path.cwd()
 LOGS_DIR = WORKSPACE_ROOT / "logs"
@@ -117,6 +115,12 @@ def load_mcp_tools() -> list[StructuredTool]:
         print("MCP_FEISHU_URL environment variable not set, skipping MCP tools.")
         return []
     print(f"Loading MCP tools from {url}...")
+    try:
+        from langchain_mcp_adapters.client import MCPClient
+        from langchain_mcp_adapters.tools import load_mcp_tools as load_mcp_tools_from_adapter
+    except ImportError as exc:
+        print(f"langchain-mcp-adapters is not installed: {exc}. Skipping MCP tools.")
+        return []
     client = MCPClient(url)
     tools = load_mcp_tools_from_adapter(client)
     wrapped_tools: list[StructuredTool] = []
