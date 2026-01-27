@@ -126,6 +126,7 @@ def build_agent(tools: Sequence | None = None):
 
     if tools is None:
         tools = get_tools()
+        print(f"Loaded {len(tools)} tools, they are: {tools}")
 
     new_tools = []
     for t in tools:

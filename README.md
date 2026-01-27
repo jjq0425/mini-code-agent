@@ -39,3 +39,7 @@ uv run python -m code_agent.main "请读取 README.md 并总结"
 - `src/code_agent/tools.py`：封装文件读写与 bash 工具。
 - `src/code_agent/agent.py`：创建 LangGraph agent。
 - `src/code_agent/main.py`：命令行入口。
+
+
+## Env配置
+飞书MCP：https://open.feishu.cn/page/mcp/7599298337598835670
