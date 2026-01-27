@@ -37,6 +37,8 @@ python3 sandbox-mcp/server.py
 
 - `run_python(code, timeout_s=5)`：在沙箱目录中运行 Python3 代码并返回 stdout/stderr。
 
+> 提示：MCP 工具的描述来自 `run_python` 函数的 docstring，可在 `sandbox-mcp/server.py` 中修改。
+
 ## 示例
 
 ```bash
