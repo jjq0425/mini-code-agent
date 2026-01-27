@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 
 DEFAULT_SANDBOX_ROOT = Path(__file__).resolve().parent / "sandbox"
@@ -19,7 +19,7 @@ def _sandbox_root() -> Path:
     return root.resolve()
 
 
-mcp = FastMCP("sandbox-mcp", host="127.0.0.1", port=9000)
+mcp = FastMCP("sandbox-mcp",  port=9000)
 
 
 @mcp.tool()
@@ -64,5 +64,5 @@ def run_python(code: str, timeout_s: int = 5) -> dict[str, Any]:
 if __name__ == "__main__":
     _sandbox_root().mkdir(parents=True, exist_ok=True)
     print("Starting Sandbox MCP server")
-    mcp.run()
+    mcp.run(transport="http")
     print("Sandbox MCP server stopped.")
