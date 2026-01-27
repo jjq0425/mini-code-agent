@@ -22,6 +22,13 @@ uv sync
 export DASHSCOPE_API_KEY="sk-xxx"
 ```
 
+如需加载 MCP 工具，可配置以下地址（可同时设置）：  
+
+```bash
+export MCP_FEISHU_URL="http://127.0.0.1:8000"
+export MCP_SANDBOX_URL="http://127.0.0.1:9000"
+```
+
 ## 运行示例
 
 ```bash

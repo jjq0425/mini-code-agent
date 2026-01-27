@@ -99,14 +99,14 @@ def _run_bash_impl(command: str) -> str:
     return output.strip() or "(no output)"
 
 
-def _wrap_mcp_tool(tool_obj: BaseTool, url: str) -> StructuredTool:
+def _wrap_mcp_tool(tool_obj: BaseTool, url: str, server_name: str) -> StructuredTool:
     tool_name = tool_obj.name
-    description = tool_obj.description or "Feishu MCP tool"
+    description = tool_obj.description or f"{server_name} MCP tool"
     args_schema = getattr(tool_obj, "args_schema", None)
 
     def _runner(**kwargs: Any) -> str:
         call_id = str(uuid.uuid4())
-        _log_hook("hook_before", tool_name, call_id, {"url": url, "args": kwargs})
+        _log_hook("hook_before", tool_name, call_id, {"url": url, "server": server_name, "args": kwargs})
         start = time.time()
         try:
             result = asyncio.run(tool_obj.ainvoke(kwargs))
@@ -116,11 +116,16 @@ def _wrap_mcp_tool(tool_obj: BaseTool, url: str) -> StructuredTool:
                 "hook_after",
                 tool_name,
                 call_id,
-                {"result_len": len(result), "result_snippet": result[:200], "duration": time.time() - start},
+                {
+                    "server": server_name,
+                    "result_len": len(result),
+                    "result_snippet": result[:200],
+                    "duration": time.time() - start,
+                },
             )
             return result
         except Exception as exc:
-            _log_hook("hook_error", tool_name, call_id, {"error": str(exc)})
+            _log_hook("hook_error", tool_name, call_id, {"server": server_name, "error": str(exc)})
             raise
 
     return StructuredTool.from_function(
@@ -131,25 +136,31 @@ def _wrap_mcp_tool(tool_obj: BaseTool, url: str) -> StructuredTool:
     )
 
 
+def _build_mcp_servers() -> dict[str, dict[str, str]]:
+    servers: dict[str, dict[str, str]] = {}
+    feishu_url = os.environ.get("MCP_FEISHU_URL")
+    if feishu_url:
+        servers["feishu_server"] = {"transport": "http", "url": feishu_url}
+    sandbox_url = os.environ.get("MCP_SANDBOX_URL")
+    if sandbox_url:
+        servers["sandbox_server"] = {"transport": "http", "url": sandbox_url}
+    return servers
+
+
 def load_mcp_tools() -> list[StructuredTool]:
-    url = os.environ.get("MCP_FEISHU_URL")
-    if not url:
-        print("MCP_FEISHU_URL environment variable not set, skipping MCP tools.")
+    servers = _build_mcp_servers()
+    if not servers:
+        print("MCP_FEISHU_URL or MCP_SANDBOX_URL not set, skipping MCP tools.")
         return []
-    print(f"Loading MCP tools from {url}...")
-    client = MultiServerMCPClient(
-        {
-            "feishu_server": {
-                "transport": "http",
-                "url": url,
-            }
-        }
-    )
+    print(f"Loading MCP tools from {', '.join(servers.keys())}...")
+    client = MultiServerMCPClient(servers)
 
     tools = asyncio.run(client.get_tools())
     wrapped_tools: list[StructuredTool] = []
     for tool_obj in tools:
-        wrapped_tools.append(_wrap_mcp_tool(tool_obj, url))
+        server_name = getattr(tool_obj, "server_name", "mcp_server")
+        url = servers.get(server_name, {}).get("url", "")
+        wrapped_tools.append(_wrap_mcp_tool(tool_obj, url, server_name))
     print(f"Loaded {len(wrapped_tools)} MCP tools via langchain-mcp-adapters.")
     return wrapped_tools
 
