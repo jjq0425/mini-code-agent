@@ -33,42 +33,51 @@
 ---
 
 ## 安装与环境准备
+### 0) 预先准备
 
+- 在运行或安装依赖前，务必先激活 Python 虚拟环境（venv）。
+  - 创建并激活（在根目录）：
+    ```sh
+    python -m venv .venv
+    source .venv/bin/activate
+    ```
 ### 1) 安装依赖
 
 ```bash
 uv sync
 ```
 
-> 若使用 SOCKS 代理，请确保已安装 `httpx[socks]` 依赖（本项目已包含）。
+
 
 ### 2) 配置环境变量
 
-```bash
-export DASHSCOPE_API_KEY="sk-xxx"
-```
+- 配置环境变量：复制并编辑模板 `.env.template` 为 `.env`
 
-如需加载 MCP 工具，可配置以下地址（可同时设置）：
+> 具体说明参考.env.template
 
-```bash
-export MCP_FEISHU_URL="http://127.0.0.1:8000"
-export MCP_SANDBOX_URL="http://127.0.0.1:9000"
-```
 
 ---
 
 ## 运行示例
 
-### CLI 快速调用
+### Part1：CLI 快速调用【不推荐】
 
 ```bash
 uv run code-agent "请列出当前目录下的文件"
+uv run python -m code_agent.main "请读取 README.md 并总结"
 ```
 
-### 直接运行模块
+> 推荐使用带Hook监控的运行
+
+### Part2：带Hook监控的运行模块【推荐】
 
 ```bash
-uv run python -m code_agent.main "请读取 README.md 并总结"
+python -m monitor.run_agent_with_monitor "你的问题"
+```
+### Part3：运行sandbox-mcp 【使用代码运行MCP时必须】
+请另外启动一个终端进程：
+```bash
+python3 sandbox-mcp/server.py
 ```
 
 ---
@@ -98,12 +107,24 @@ mini-code-agent/
 
 ## MCP 生态与拓展
 
-- 飞书 MCP 入口：<https://open.feishu.cn/page/mcp/7599298337598835670>
+本仓库提供两个MCP入口：
 
-如需拓展更多 MCP 服务，可配置对应的地址并在工具注册处进行挂载。
+
+- 飞书 MCP 入口：
+    - 远程MCP，提供飞书文档读写能力，**MCP Server部署在飞书侧**
+    - 具体说明请参考<https://open.feishu.cn/page/mcp/7599298337598835670>
+    - 若需获取接入链接，请私聊
+- 代码运行 MCP(即sandbox-mcp目录下):
+    - 远程MCP，提供Python代码运行能力，**MCP Server部署在本机侧，但仍需通过MCP交互**
+
+
 
 ---
 
 ## 许可与致谢
 
 本项目以轻量实现为主，旨在为**工程实践**与**学术实验**提供统一起点。欢迎扩展、复用与提出改进建议。
+
+## Contributor
+
+@jjq0425; @xiaoxuan668
