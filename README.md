@@ -120,6 +120,13 @@ mini-code-agent/
 - 代码运行 MCP(即sandbox-mcp目录下):
     - 远程MCP，提供Python代码运行能力，**MCP Server部署在本机侧，但仍需通过MCP交互**
 
+---
+
+## Helicone Gateway（请求追踪与监控）
+
+如需为 LLM 调用增加**网关追踪、监控与审计**，可使用 Helicone 搭建本地 Gateway。  
+详细部署与接入方式请参考：`gateway/README.md`。
+
 
 
 ---
