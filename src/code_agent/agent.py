@@ -53,11 +53,20 @@ def build_agent(tools: Sequence | None = None):
     # Defaults kept for backwards compatibility.
     base_url = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     model_name = os.environ.get("DASHSCOPE_MODEL", "qwen-flash")
-    model = ChatOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-        model=model_name,
-    )
+    PORTKEY_API_KEY = os.environ.get("PORTKEY_API_KEY")
+    if PORTKEY_API_KEY:
+        from portkey_ai import PORTKEY_GATEWAY_URL
+        model = ChatOpenAI(
+            base_url=PORTKEY_GATEWAY_URL,
+            api_key=PORTKEY_API_KEY,
+            model="@dashscope/" + model_name,
+        )
+    else:
+        model = ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
+        )
     # 如果存在则加载简单的策略文件
     policy_path = Path.cwd() / "policies" / "policy.yaml"
     forbidden = []
@@ -139,9 +148,18 @@ def build_agent(tools: Sequence | None = None):
     # Fallback / legacy path: also respect env vars here
     base_url = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     model_name = os.environ.get("DASHSCOPE_MODEL", "qwen-flash")
-    model = ChatOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-        model=model_name,
-    )
+    PORTKEY_API_KEY = os.environ.get("PORTKEY_API_KEY")
+    if PORTKEY_API_KEY:
+        from portkey_ai import PORTKEY_GATEWAY_URL
+        model = ChatOpenAI(
+            base_url=PORTKEY_GATEWAY_URL,
+            api_key=PORTKEY_API_KEY,
+            model="@dashscope/" + model_name,
+        )
+    else:
+        model = ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model_name,
+        )
     return create_react_agent(model, tools)
