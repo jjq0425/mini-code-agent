@@ -1,0 +1,2 @@
+[console_scripts]
+portkey_ai = portkey_ai._portkey_scripts:main

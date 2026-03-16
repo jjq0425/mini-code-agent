@@ -1,0 +1,3 @@
+/home/admin/mini-code-agent/monitor/run_agent_with_monitor\.py    --    gen_context(system_u:object_r:mini_agent_exec_t,s0)
+/home/admin/mini-code-agent/logs(/.*)?                          gen_context(system_u:object_r:mini_agent_log_t,s0)
+/home/admin/mini-code-agent/src(/.*)?                           gen_context(system_u:object_r:usr_t,s0)

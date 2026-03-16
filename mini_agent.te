@@ -1,0 +1,42 @@
+module mini_agent 1.0;
+
+require {
+    type unconfined_t;
+    type shell_exec_t;
+    type bin_t;
+    type usr_t;
+
+    class process { transition sigchld fork };
+    class file { read write getattr execute open map create append setattr };
+    class dir { read write add_name create setattr search };
+}
+
+# 类型声明
+type mini_agent_t;
+type mini_agent_exec_t;
+type mini_agent_log_t;
+
+# 域转换
+type_transition unconfined_t mini_agent_exec_t:process mini_agent_t;
+
+# 关键补充：允许从 unconfined_t 转换到 mini_agent_t
+allow unconfined_t mini_agent_t:process transition;
+allow mini_agent_t unconfined_t:process sigchld;
+
+# 关键补充：允许普通域读取/执行入口文件
+allow unconfined_t mini_agent_exec_t:file { getattr open read execute };
+
+# mini_agent_t 自身基础能力
+allow mini_agent_t self:process { fork sigchld };
+
+# 源码目录读取
+allow mini_agent_t usr_t:dir { read search };
+allow mini_agent_t usr_t:file { read getattr open map };
+
+# 日志目录读写
+allow mini_agent_t mini_agent_log_t:dir { write add_name read create setattr search };
+allow mini_agent_t mini_agent_log_t:file { create open append write getattr };
+
+# 允许执行 shell 和系统基础命令
+allow mini_agent_t shell_exec_t:file { read getattr execute map open };
+allow mini_agent_t bin_t:file { read getattr execute map open };
