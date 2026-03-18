@@ -51,3 +51,5 @@ htmlcov/
 Thumbs.db
 
 # lockfiles handled explicitly by project maintainers - don't ignore by default
+
+testHere/*

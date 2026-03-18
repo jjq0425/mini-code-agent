@@ -54,7 +54,14 @@ def build_agent(tools: Sequence | None = None):
     base_url = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     model_name = os.environ.get("DASHSCOPE_MODEL", "qwen-flash")
     PORTKEY_API_KEY = os.environ.get("PORTKEY_API_KEY")
-    if PORTKEY_API_KEY:
+    LOCAL_PORTKEY_URL = os.environ.get("LOCAL_PORTKEY_URL")
+    if LOCAL_PORTKEY_URL and PORTKEY_API_KEY:
+        model = ChatOpenAI(
+            base_url=LOCAL_PORTKEY_URL,
+            api_key=PORTKEY_API_KEY,
+            model= model_name,
+        )
+    elif PORTKEY_API_KEY:
         from portkey_ai import PORTKEY_GATEWAY_URL
         model = ChatOpenAI(
             base_url=PORTKEY_GATEWAY_URL,
